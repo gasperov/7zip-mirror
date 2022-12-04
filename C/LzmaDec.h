@@ -71,6 +71,8 @@ typedef struct
   UInt32 numProbs;
   unsigned tempBufSize;
   Byte tempBuf[LZMA_REQUIRED_INPUT_MAX];
+
+  UInt32 numTrainBytes;
 } CLzmaDec;
 
 #define LzmaDec_Construct(p) { (p)->dic = NULL; (p)->probs = NULL; }

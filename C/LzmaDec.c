@@ -246,6 +246,7 @@ int MY_FAST_CALL LZMA_DECODE_REAL(CLzmaDec *p, SizeT limit, const Byte *bufLimit
   
   UInt32 processedPos = p->processedPos;
   UInt32 checkDicSize = p->checkDicSize;
+  UInt32 numTrainBytes = p->numTrainBytes;
   unsigned len = 0;
 
   const Byte *buf = p->buf;
@@ -534,7 +535,7 @@ int MY_FAST_CALL LZMA_DECODE_REAL(CLzmaDec *p, SizeT limit, const Byte *bufLimit
         rep1 = rep0;
         rep0 = distance + 1;
         state = (state < kNumStates + kNumLitStates) ? kNumLitStates : kNumLitStates + 3;
-        if (distance >= (checkDicSize == 0 ? processedPos: checkDicSize))
+        if (distance >= (checkDicSize == 0 ? (processedPos+numTrainBytes): checkDicSize))
         {
           len += kMatchSpecLen_Error_Data + kMatchMinLen;
           // len = kMatchSpecLen_Error_Data;
@@ -922,6 +923,7 @@ void LzmaDec_InitDicAndState(CLzmaDec *p, BoolInt initDic, BoolInt initState)
 void LzmaDec_Init(CLzmaDec *p)
 {
   p->dicPos = 0;
+  p->numTrainBytes = 0;
   LzmaDec_InitDicAndState(p, True, True);
 }
 

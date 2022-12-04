@@ -62,7 +62,7 @@ SRes LzmaEnc_WriteProperties(CLzmaEncHandle p, Byte *properties, SizeT *size);
 unsigned LzmaEnc_IsWriteEndMark(CLzmaEncHandle p);
 
 SRes LzmaEnc_Encode(CLzmaEncHandle p, ISeqOutStream *outStream, ISeqInStream *inStream,
-    ICompressProgress *progress, ISzAllocPtr alloc, ISzAllocPtr allocBig);
+    ICompressProgress *progress, ISzAllocPtr alloc, ISzAllocPtr allocBig, UInt32 trainSize);
 SRes LzmaEnc_MemEncode(CLzmaEncHandle p, Byte *dest, SizeT *destLen, const Byte *src, SizeT srcLen,
     int writeEndMark, ICompressProgress *progress, ISzAllocPtr alloc, ISzAllocPtr allocBig);
 

@@ -413,6 +413,8 @@ typedef struct
   BoolInt finished;
   BoolInt multiThread;
   BoolInt needInit;
+
+  UInt32  trainSize;
   // BoolInt _maxMode;
 
   UInt64 nowPos64;
@@ -2409,6 +2411,17 @@ static SRes LzmaEnc_CodeOneBlock(CLzmaEnc *p, UInt32 maxPackSize, UInt32 maxUnpa
     p->needInit = 0;
   }
 
+// train
+  if (p->trainSize) {
+    UInt32 ts = p->trainSize;
+    p->trainSize = 0;
+    if (p->matchFinder.GetNumAvailableBytes(p->matchFinderObj) < ts) {
+      p->result = SZ_ERROR_READ;
+      return SZ_ERROR_READ;
+    } 
+	  p->matchFinder.Skip(p->matchFinderObj, ts);
+  }
+
   if (p->finished)
     return p->result;
   RINOK(CheckErrors(p));
@@ -2863,7 +2876,7 @@ static void LzmaEnc_InitPrices(CLzmaEnc *p)
   LenPriceEnc_UpdateTables(&p->repLenEnc, (unsigned)1 << p->pb, &p->repLenProbs, p->ProbPrices);
 }
 
-static SRes LzmaEnc_AllocAndInit(CLzmaEnc *p, UInt32 keepWindowSize, ISzAllocPtr alloc, ISzAllocPtr allocBig)
+static SRes LzmaEnc_AllocAndInit(CLzmaEnc *p, UInt32 keepWindowSize, ISzAllocPtr alloc, ISzAllocPtr allocBig, UInt32 trainSize)
 {
   unsigned i;
   for (i = kEndPosModelIndex / 2; i < kDicLogSizeMax; i++)
@@ -2877,17 +2890,18 @@ static SRes LzmaEnc_AllocAndInit(CLzmaEnc *p, UInt32 keepWindowSize, ISzAllocPtr
   LzmaEnc_Init(p);
   LzmaEnc_InitPrices(p);
   p->nowPos64 = 0;
+  p->trainSize = trainSize;
   return SZ_OK;
 }
 
 static SRes LzmaEnc_Prepare(CLzmaEncHandle pp, ISeqOutStream *outStream, ISeqInStream *inStream,
-    ISzAllocPtr alloc, ISzAllocPtr allocBig)
+    ISzAllocPtr alloc, ISzAllocPtr allocBig, UInt32 trainSize)
 {
   CLzmaEnc *p = (CLzmaEnc *)pp;
   MFB.stream = inStream;
   p->needInit = 1;
   p->rc.outStream = outStream;
-  return LzmaEnc_AllocAndInit(p, 0, alloc, allocBig);
+  return LzmaEnc_AllocAndInit(p, 0, alloc, allocBig, trainSize);
 }
 
 SRes LzmaEnc_PrepareForLzma2(CLzmaEncHandle pp,
@@ -2897,7 +2911,7 @@ SRes LzmaEnc_PrepareForLzma2(CLzmaEncHandle pp,
   CLzmaEnc *p = (CLzmaEnc *)pp;
   MFB.stream = inStream;
   p->needInit = 1;
-  return LzmaEnc_AllocAndInit(p, keepWindowSize, alloc, allocBig);
+  return LzmaEnc_AllocAndInit(p, keepWindowSize, alloc, allocBig, 0);
 }
 
 static void LzmaEnc_SetInputBuf(CLzmaEnc *p, const Byte *src, SizeT srcLen)
@@ -2915,7 +2929,7 @@ SRes LzmaEnc_MemPrepare(CLzmaEncHandle pp, const Byte *src, SizeT srcLen,
   p->needInit = 1;
 
   LzmaEnc_SetDataSize(pp, srcLen);
-  return LzmaEnc_AllocAndInit(p, keepWindowSize, alloc, allocBig);
+  return LzmaEnc_AllocAndInit(p, keepWindowSize, alloc, allocBig, 0);
 }
 
 void LzmaEnc_Finish(CLzmaEncHandle pp)
@@ -3047,9 +3061,9 @@ static SRes LzmaEnc_Encode2(CLzmaEnc *p, ICompressProgress *progress)
 
 
 SRes LzmaEnc_Encode(CLzmaEncHandle pp, ISeqOutStream *outStream, ISeqInStream *inStream, ICompressProgress *progress,
-    ISzAllocPtr alloc, ISzAllocPtr allocBig)
+    ISzAllocPtr alloc, ISzAllocPtr allocBig, UInt32 trainSize)
 {
-  RINOK(LzmaEnc_Prepare(pp, outStream, inStream, alloc, allocBig));
+  RINOK(LzmaEnc_Prepare(pp, outStream, inStream, alloc, allocBig, trainSize));
   return LzmaEnc_Encode2((CLzmaEnc *)pp, progress);
 }
 

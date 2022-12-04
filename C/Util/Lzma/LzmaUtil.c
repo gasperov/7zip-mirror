@@ -70,13 +70,28 @@ static int PrintUserError(char *buffer)
 
 
 static SRes Decode2(CLzmaDec *state, ISeqOutStream *outStream, ISeqInStream *inStream,
-    UInt64 unpackSize)
+    UInt64 unpackSize, ISeqInStream *trainStream)
 {
   int thereIsSize = (unpackSize != (UInt64)(Int64)-1);
   Byte inBuf[IN_BUF_SIZE];
   Byte outBuf[OUT_BUF_SIZE];
   size_t inPos = 0, inSize = 0, outPos = 0;
   LzmaDec_Init(state);
+  if (trainStream) {
+    //train
+    Byte* dic = state->dic;
+    UInt32 sz = 0;
+    while (SeqInStream_ReadByte(trainStream, dic) == 0) {
+      if (outStream) {
+        if (outStream->Write(outStream, dic, 1) != 1)
+          return SZ_ERROR_WRITE;
+      }
+      dic++;
+      sz++;
+    }
+    state->dicPos += sz;
+    state->numTrainBytes += sz;
+  }
   for (;;)
   {
     if (inPos == inSize)
@@ -123,7 +138,7 @@ static SRes Decode2(CLzmaDec *state, ISeqOutStream *outStream, ISeqInStream *inS
 }
 
 
-static SRes Decode(ISeqOutStream *outStream, ISeqInStream *inStream)
+static SRes Decode(ISeqOutStream *outStream, ISeqInStream *inStream, ISeqInStream *train)
 {
   UInt64 unpackSize;
   int i;
@@ -144,12 +159,12 @@ static SRes Decode(ISeqOutStream *outStream, ISeqInStream *inStream)
 
   LzmaDec_Construct(&state);
   RINOK(LzmaDec_Allocate(&state, header, LZMA_PROPS_SIZE, &g_Alloc));
-  res = Decode2(&state, outStream, inStream, unpackSize);
+  res = Decode2(&state, outStream, inStream, unpackSize, train);
   LzmaDec_Free(&state, &g_Alloc);
   return res;
 }
 
-static SRes Encode(ISeqOutStream *outStream, ISeqInStream *inStream, UInt64 fileSize, char *rs)
+static SRes Encode(ISeqOutStream *outStream, ISeqInStream *inStream, UInt64 fileSize, char *rs, UInt32 trainSize)
 {
   CLzmaEncHandle enc;
   SRes res;
@@ -171,6 +186,7 @@ static SRes Encode(ISeqOutStream *outStream, ISeqInStream *inStream, UInt64 file
     int i;
 
     res = LzmaEnc_WriteProperties(enc, header, &headerSize);
+
     for (i = 0; i < 8; i++)
       header[headerSize++] = (Byte)(fileSize >> (8 * i));
     if (outStream->Write(outStream, header, headerSize) != headerSize)
@@ -178,7 +194,7 @@ static SRes Encode(ISeqOutStream *outStream, ISeqInStream *inStream, UInt64 file
     else
     {
       if (res == SZ_OK)
-        res = LzmaEnc_Encode(enc, outStream, inStream, NULL, &g_Alloc, &g_Alloc);
+        res = LzmaEnc_Encode(enc, outStream, inStream, NULL, &g_Alloc, &g_Alloc, trainSize);
     }
   }
   LzmaEnc_Destroy(enc, &g_Alloc, &g_Alloc);
@@ -189,6 +205,7 @@ static SRes Encode(ISeqOutStream *outStream, ISeqInStream *inStream, UInt64 file
 static int main2(int numArgs, const char *args[], char *rs)
 {
   CFileSeqInStream inStream;
+  CFileSeqInStream tStream;
   CFileOutStream outStream;
   char c;
   int res;
@@ -203,14 +220,18 @@ static int main2(int numArgs, const char *args[], char *rs)
   File_Construct(&outStream.file);
   outStream.wres = 0;
 
+  FileSeqInStream_CreateVTable(&tStream);
+  File_Construct(&tStream.file);
+  tStream.wres = 0;
+
   if (numArgs == 1)
   {
     PrintHelp(rs);
     return 0;
   }
 
-  if (numArgs < 3 || numArgs > 4 || strlen(args[1]) != 1)
-    return PrintUserError(rs);
+ /* if (numArgs < 3 || numArgs > 4 || strlen(args[1]) != 1)
+    return PrintUserError(rs);*/
 
   c = args[1][0];
   encodeMode = (c == 'e' || c == 'E');
@@ -241,19 +262,38 @@ static int main2(int numArgs, const char *args[], char *rs)
   else if (encodeMode)
     PrintUserError(rs);
 
+  if (numArgs > 4) {
+    WRes wres = InFile_Open(&tStream.file, args[4]);
+    if (wres != 0)
+      return PrintError_WRes(rs, "Cannot open train file", wres);
+  }
+
   if (encodeMode)
   {
     UInt64 fileSize;
     WRes wres = File_GetLength(&inStream.file, &fileSize);
     if (wres != 0)
       return PrintError_WRes(rs, "Cannot get file length", wres);
-    res = Encode(&outStream.vt, &inStream.vt, fileSize, rs);
+
+    UInt64 trainSize = 0;
+    if (numArgs > 4) {
+      wres = File_GetLength(&tStream.file, &trainSize);
+      if (wres != 0)
+        return PrintError_WRes(rs, "Cannot get file length", wres);
+      if (fileSize <= trainSize) {
+        return PrintError(rs, "Invalid trains data");
+      }
+      fileSize -= trainSize; //TODO: we could dump train data as proper raw lzma output
+    }
+    res = Encode(&outStream.vt, &inStream.vt, fileSize, rs, (UInt32)trainSize);
   }
   else
   {
-    res = Decode(&outStream.vt, useOutFile ? &inStream.vt : NULL);
+    res = Decode(&outStream.vt, useOutFile ? &inStream.vt : NULL, numArgs > 4 ? &tStream.vt : 0);
   }
 
+  if (numArgs > 4)
+    File_Close(&tStream.file);
   if (useOutFile)
     File_Close(&outStream.file);
   File_Close(&inStream.file);
